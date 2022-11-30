@@ -145,11 +145,8 @@ class EnclosingAgent(Agent):
 
         path_to_adv = self.search(chess_board, my_pos, adv_pos)
         if path_to_adv is None:
-            # print("WARN: return dummy move")
             # dummy return
             return my_pos, self.dir_map["u"]
-        # print("Path to adv")
-        # print(path_to_adv)
 
         # Place wall at closest possible position
         if len(path_to_adv) - 2 <= max_step:

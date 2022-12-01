@@ -122,14 +122,14 @@ class Simulator:
                 else:  # Tie
                     p1_win_count += 1
                     p2_win_count += 1
-                p1_times.append(p0_time)
-                p2_times.append(p1_time)
+                p1_times.extend(p0_time)
+                p2_times.extend(p1_time)
 
         logger.info(
-            f"Player {PLAYER_1_NAME} win percentage: {p1_win_count / self.args.autoplay_runs} ({np.round(np.mean(p1_times), 5)} seconds/game)"
+            f"Player {PLAYER_1_NAME} win percentage: {p1_win_count / self.args.autoplay_runs} ({np.round(np.mean(p1_times)*1000, 5)} miliseconds/turn)"
         )
         logger.info(
-            f"Player {PLAYER_2_NAME} win percentage: {p2_win_count / self.args.autoplay_runs}, ({np.round(np.mean(p2_times), 5)} seconds/game)"
+            f"Player {PLAYER_2_NAME} win percentage: {p2_win_count / self.args.autoplay_runs}, ({np.round(np.mean(p2_times)*1000, 5)} miliseconds/turn)"
         )
 
 

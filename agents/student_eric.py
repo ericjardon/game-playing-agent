@@ -5,16 +5,12 @@ import sys
 import time
 
 
-@register_agent("student_eric")
-class StudentEric(Agent):
-    """
-    A dummy class for your implementation. Feel free to use this class to
-    add any helper functionalities needed for your agent.
-    """
+@register_agent("eric_agent")
+class EricAgent(Agent):
 
     def __init__(self):
-        super(StudentEric, self).__init__()
-        self.name = "StudentEric"
+        super(EricAgent, self).__init__()
+        self.name = "EricAgent"
         self.dir_map = {
             "u": 0,
             "r": 1,

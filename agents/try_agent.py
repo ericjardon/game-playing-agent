@@ -4,18 +4,22 @@ from copy import deepcopy
 from agents.agent import Agent
 from store import register_agent
 from collections import deque, defaultdict
-import time
+from time import time
+import random
+
+MAX_TIME_SECONDS = 1.99
 
 @register_agent("try_agent")
 class TryAgent(Agent):
 
+    # ITERATIONS = 290
+    
     def __init__(self):
         super(TryAgent, self).__init__()
         self.name = "TryAgent"
         self.autoplay = True
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
-        tic = time.perf_counter()
         state = BoardState(
             chess_board,
             my_pos, 
@@ -24,9 +28,21 @@ class TryAgent(Agent):
             turn=0
         )
         tree = MCTSNode(state)
-        pos_r, pos_c, wall = tree.bestMove(iterations=100)
-        # print("Try agent moved in {:.2f}".format(time.perf_counter() - tic))
+        pos_r, pos_c, wall = tree.bestMove()
         return (pos_r, pos_c), wall
+    
+    # def firstStep(self, chess_board, my_pos, adv_pos, max_step):
+    #     print("first")
+    #     state = BoardState(
+    #         chess_board,
+    #         my_pos, 
+    #         adv_pos,
+    #         max_step,
+    #         turn=0
+    #     )
+    #     tree = MCTSNode(state)
+    #     pos_r, pos_c, wall = tree.bestMove(iterations=1e3)
+    #     return (pos_r, pos_c), wall
 
 class BoardState():
     '''Used both as an information container and a simulator for now'''
@@ -77,6 +93,7 @@ class BoardState():
             # For all nodes in current level
             for _ in range(len(queue)):     
                 curr = queue.popleft()
+                
                 for dir in range(4):
                     if self.chess_board[curr[0], curr[1], dir]: # Wall
                         continue
@@ -356,11 +373,12 @@ class MCTSNode():
     
         return stateNode
     
-    def bestMove(self, iterations):
-        for p in range(iterations):
+    def bestMove(self, iterations=280):
+        st_time = time()
+
+        while time() - st_time < MAX_TIME_SECONDS:
             node = self.treePolicy()    # Selection and Expansion
             result = node.playout()     # Simulation
             node.backpropagate(result)  # Backpropagation
-            # print("\tsimulation", p, "=", result)
 
         return self.selectBestChild(C=0).parentAction # pure exploitation

@@ -142,8 +142,8 @@ class World:
         self.initial_end, _, _ = self.check_endgame()
 
         # Time taken by each player
-        self.p0_time = 0
-        self.p1_time = 0
+        self.p0_time = [] #0
+        self.p1_time = [] #0
 
         # Cache to store and use the data
         self.results_cache = ()
@@ -180,12 +180,16 @@ class World:
         Parameters
         ----------
         time_taken : float
-            Time taken by the player
+            Time taken by the player (per turn)
         """
+        if time_taken  > 2:
+            print("timed out:", time_taken,"seconds", "B" if self.turn else "A", "board size", self.board_size)
         if not self.turn:
-            self.p0_time += time_taken
+            # self.p0_time += time_taken
+            self.p0_time.append(time_taken) 
         else:
-            self.p1_time += time_taken
+            # self.p1_time += time_taken
+            self.p1_time.append(time_taken) 
 
     def step(self):
         """

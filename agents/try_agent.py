@@ -41,7 +41,7 @@ class BoardState():
     def isValidPos(self, pos):
         return 0 <= pos[0] < self.board_size and 0 <= pos[1] < self.board_size
     
-    def getAllPossibleMoves(self):
+    def getListOfMoves(self):
         '''
         BFS
         Finds all placeable walls at all reachable positions 
@@ -71,7 +71,7 @@ class BoardState():
                         continue
                     
                     # Valid wall
-                    actions.append((curr[0], curr[1], dir))
+                    actions.append((curr[0], curr[1], dir)) # we could save every other action only
 
                     if skipNeighbors:
                         continue
@@ -147,20 +147,20 @@ class BoardState():
         # Switch turns
         self.turn ^= 1
 
-        def nextBoardState(self, action):
-            '''
-            Return a NEW BoardState from making the specified move
-            CAREFUL not to call this method from the BoardState used for simulation.
-            Ideally, use a temporary BoardState on playout()
-            '''
-            copy = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, self.turn)
-            copy.updateBoard(action)
-            return copy
+
+    def nextBoardState(self, action):
+        '''
+        Return a new BoardState from making the specified move
+        WARNING: updates internal state of Board
+        '''
+        copy = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, self.turn)
+        copy.updateBoard(action)
+        return copy
         
     def pseudoRandomAction(self):
         raise NotImplementedError()
 
-    def isEndGame(self):
+    def isGameOver(self):
         # Union-Find, O(n lg*n), better than O(nlogn)
         father = dict()
         for r in range(self.board_size):
@@ -218,7 +218,7 @@ class BoardState():
     def runToCompletion(self, start_turn = 1):
         """Create a copy of the Board and update until endgame"""
         simul = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, turn=start_turn)
-        while not simul.isEndGame():
+        while not simul.isGameOver():
             action = simul.randomAction()   # random walk
             simul.updateBoard(action)
 
@@ -258,7 +258,7 @@ class MCTSNode():
         self._outcomes = _outcomes
         
         # Compute all possible moves
-        self._untriedMoves = self.state.getAllPossibleMoves()
+        self._untriedMoves = self.state.getListOfMoves()
 
     def q(self):
         return (self._outcomes[1] - self._outcomes[-1]) / self.n_visits
@@ -267,20 +267,20 @@ class MCTSNode():
         """
             From present state, generate child state by taking
             ONE possible action. Assumes untriedMoves len > 1
-            Instantiates a new MCTSNode and returns it.
+            Instantiates and returns a new MCTSNode.
         """
         # Pick a legal unexplored move
         action = self._untriedMoves.pop()       # pop moves with longer steps first
-        # Compute next state
+
         next_board_state = self.state.nextBoardState(action)    # returns BoardState after action
         child_node = MCTSNode(
             next_board_state, parent=self, parentAction=action)
-        # All children nodes are other player's turn
+
         self.children.append(child_node)
         return child_node
 
     def isTerminalNode(self):
-        return self.state.isEndGame()
+        return self.state.isGameOver()
 
     def playout(self):
         """
@@ -289,9 +289,17 @@ class MCTSNode():
         Loss:   -1
         Tie:    0
         """
-        result = self.state.runToCompletion()
+        simul = BoardState(
+            self.state.chess_board, 
+            self.state.p0_pos, self.state.p1_pos, 
+            self.state.max_step, 
+            self.state.turn)
+        
+        while not simul.isGameOver():
+            action = simul.randomAction()   # random walk
+            simul.updateBoard(action)       # update state and toggle turn
 
-        return result
+        return simul._result
 
     def backpropagate(self, result):
         """
@@ -304,45 +312,44 @@ class MCTSNode():
         if self.parent:
             self.parent.backpropagate(result)
 
-    def isFullyExpanded(self):
+    def hasTriedAllMoves(self):
         # "Cutting actions by half can give us incredible savings"
         return len(self._untriedMoves) == 0
 
     def selectBestChild(self, C=0.1):
-        # Exploitation vs Exploration score is computed: vi + C*sqrt[ln(N) / ni]
+        # Exploitation vs Exploration: vi + C*sqrt[ln(N) / ni]
         scores = [
             child.q() + \
-            C * np.sqrt((2 * np.log(self.n_visits) / child.n_visits)) # why 2*?
+            C * np.sqrt((np.log(self.n_visits) / child.n_visits)) # why 2*?
             for child in self.children
         ]
+        # Approach minimax tree
         if self.turn == 0:
-            return self.children[np.argmax(scores)]     # maximize our estimated reward
+            return self.children[np.argmax(scores)]     # max turn
         else:
-            return self.children[np.argmin(scores)]     # player 1 will choose what is worse (minimax)
+            return self.children[np.argmin(scores)]     # min turn
 
     def treePolicy(self):
         """
         Selection: return the node to run simulations from
         """
-        current = self
+        stateNode = self
 
-        while not current.isTerminalNode():
+        while not stateNode.isTerminalNode():
             # keep exploring new moves until we have tried them all
-            if current.isFullyExpanded():               # all children states have been generated
-                current = current.selectBestChild()     # best move for current player turn
-                depth += 1
-            else:
-                print("Expand one node in level", depth)
-                return current.expandOne()
+            if stateNode.hasTriedAllMoves():    # go deep
+                stateNode = stateNode.selectBestChild()
+            else:                               # go wide
+                return stateNode.expandOne()
     
-        return current
+        return stateNode
     
     def bestMove(self, iterations):
         for p in range(iterations):
             node = self.treePolicy()    # Selection and Expansion
-            print("Selected node:", "p0",node.state.my_pos, "p1", node.state.adv_pos, "action", node.parentAction)
+            print(f"tree policy: p{node.turn} moves {node.parentAction}")
             result = node.playout()     # Simulation
             node.backpropagate(result)  # Backpropagation
-            print("playout", p, "=", result)
+            print("\tsimulation", p, "=", result)
 
         return self.selectBestChild(C=0).parentAction # pure exploitation

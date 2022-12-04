@@ -5,7 +5,7 @@ import sys
 import time
 import numpy as np
 from copy import deepcopy
-from collections import deque
+from collections import defaultdict, deque
 
 @register_agent("eric_agent")
 class EricAgent(Agent):
@@ -21,20 +21,25 @@ class EricAgent(Agent):
         }
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
-        current_state = BoardState(chess_board, my_pos, adv_pos, max_steps=max_step)
-
+        current_state = BoardState(chess_board, my_pos, adv_pos, max_step=max_step)
+        print("INITIAL STATE")
+        current_state.printState(0)
         root = MCTSNode(current_state)
-        pos, wall = root.bestMove(iterations=100)
-
-        return pos, wall
+        pos_r, pos_c, wall = root.bestMove(iterations=100)
+        return (pos_r, pos_c), wall
 
 class BoardState():
     '''Used both as an information container and a simulator for now'''
-    moves = ((-1, 0), (0, 1), (1, 0), (0, -1))  # u, r, d, l
+    # Moves (Up, Right, Down, Left)
+    moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
+
+    # Opposite Directions
+    opposites = {0: 2, 1: 3, 2: 0, 3: 1}
 
     def __init__(self, board, my_pos, adv_pos, max_step, heavy_playout=False):
         # board is a 3d numpy array
-        self.chess_board = deepcopy(board)
+        self.chess_board = board.copy()
+        print("BoardState init pointers same?", self.chess_board is board)
         self.board_size = board.shape[0]
         self.my_pos = my_pos
         self.adv_pos = adv_pos
@@ -42,9 +47,8 @@ class BoardState():
         self.max_step = max_step
         self._result = None            # computed at endgame
         self.turn = 0                  # p0 turn
-        if self.heavy_playout:      # TODO: review
+        if heavy_playout:      # TODO: review
             self.getAction = self.pseudoRandomAction
-
     
     def validatePos(self, pos):
         return 0 <= pos[0] < self.board_size and 0 <= pos[1] < self.board_size
@@ -67,11 +71,11 @@ class BoardState():
         level = 0
 
         while len(queue)>0:
-            if level > self.max_steps:
+            if level > self.max_step:
                 break
-            
+
             # Avoid additional computation if no additional step allowed
-            skipNeighbors = level == self.max_steps
+            skipNeighbors = level == self.max_step
 
             # For all nodes in current level
             for _ in range(len(queue)):     
@@ -97,8 +101,6 @@ class BoardState():
 
             level += 1
 
-        print("actions #",len(actions)) 
-        print(actions)
         return actions
 
 
@@ -118,7 +120,7 @@ class BoardState():
             dir = np.random.randint(0,4)
             m_r, m_c = self.moves[dir]
             temp_pos = (r + m_r, c + m_c) # TODO boundary conditions?
-
+            # print("turn", turn, "my_pos", temp_pos, "adv", temp_adv_pos)
             # Special Case if enclosed by Adversary
             k = 0
             while self.chess_board[r, c, dir] or temp_pos == temp_adv_pos:
@@ -142,8 +144,8 @@ class BoardState():
         return r, c, dir
 
     def move(self, action, turn=0):
-        '''Return a new BoardState from making the specified move'''
-        new_board = deepcopy(self.chess_board)
+        '''Return a NEW BoardState from making the specified move'''
+        new_board = self.chess_board.copy()
         new_board[action[0], action[1], action[2]] = True
 
         if turn == 0:
@@ -155,9 +157,20 @@ class BoardState():
 
         return BoardState(new_board, my_pos, adv_pos, self.max_step)
 
+    def set_barrier(self, r, c, dir):
+            # Set the barrier to True
+            self.chess_board[r, c, dir] = True
+            # Set the opposite barrier to True
+            move = self.moves[dir]
+            self.chess_board[r + move[0], c + move[1], self.opposites[dir]] = True  
+
     def updateBoard(self, action, turn):
         '''Update own state from making the specified move'''
-        self.chess_board[action[0], action[1], action[2]] = True
+        self.set_barrier(action[0], action[1], action[2])
+        
+        if np.all(self.chess_board[action[0], action[1], :]):
+            print("SATURATED AT", action[0], action[1], "turn:", turn)
+            print("LOOP WARNING...")
         if turn == 0:
             self.my_pos = (action[0], action[1])
         else:
@@ -169,10 +182,8 @@ class BoardState():
     def isEndGame(self):
         # Union-Find, O(n lg*n), better than O(nlogn)
         father = dict()
-        
         for r in range(self.board_size):
-            for c in range(self.board_size):
-                # Every cell is its own parent in the beginning
+            for c in range(self.board_size): # Every cell is its own parent in the beginning
                 father[(r, c)] = (r, c)
 
         def find(pos):
@@ -203,8 +214,8 @@ class BoardState():
                 find((r, c))
 
         # Find representatives of players' positions
-        p0_r = find(tuple(self.p0_pos))
-        p1_r = find(tuple(self.p1_pos))
+        p0_r = find(tuple(self.my_pos))
+        p1_r = find(tuple(self.adv_pos))
 
         if p0_r == p1_r:
             return False
@@ -223,15 +234,35 @@ class BoardState():
         self._result = res
         return True
         
-    def runToCompletion(self, start_turn = 0):
+    def runToCompletion(self, start_turn = 1):
+        """Create a copy of the Board and update until endgame"""
+        print("Run simulation...")
         turn = start_turn
-        while not self.isEndGame():
-            action = self.getAction(turn)   # random walk
-            self.updateBoard(action, turn)  
+        simul = BoardState(self.chess_board, self.my_pos, self.adv_pos, self.max_step)
+        while not simul.isEndGame():
+            simul.printState(turn)
+            action = simul.getAction(turn)   # random walk
+            print("turn", turn, "move", action)
+            simul.updateBoard(action, turn)
             turn ^= 1
         
-        return self._result
+        return simul._result
 
+    def printState(self, turn):
+        print("p0", self.my_pos)
+        print("p1", self.adv_pos)
+        print("Last turn", turn)
+        print("board")
+        print(self.chess_board)
+        print(",")
+
+# def printBoard(board):
+    # for row in board:
+    #     for cell in row:
+            # print(cell, end="|")
+        
+        # print()
+    # print("---")
 
 '''
 MONTE CARLO TREE SEARCH
@@ -242,10 +273,6 @@ Nodes are game states.
 3. Simulation: perform a number of playouts from the expanded node. Can be heavy or light playouts (random or pseudorandom moves until completion).
 4. Backpropagation: update wins and visit counts in all nodes in the expanded path in the tree.
 '''
-
-import numpy as np
-from collections import defaultdict, deque
-
 class MCTSNode():
     def __init__(self, state, parent=None, parentAction=None) -> None:
         """ Create a node everytime we expand our existing MCTS """
@@ -265,26 +292,27 @@ class MCTSNode():
         # Compute all possible moves
         self._untriedMoves = self.state.getAllPossibleMoves()
 
-    def quality(self):
+    def q(self):
         return (self._outcomes[1] - self._outcomes[-1]) / self.n_visits
 
     def expandOne(self):
         """
             From present state, generate child state by taking
-            ONE possible action.
+            ONE possible action. Assumes untriedMoves len > 1
             Instantiates a new MCTSNode and returns it.
         """
         # Pick a legal unexplored move
         action = self._untriedMoves.pop()       # pop moves with longer steps first
         # Compute next state
         next_state = self.state.move(action)    # BoardState
+        # print("Create MCTS Node from action", action)
         child_node = MCTSNode(
             next_state, parent=self, parentAction=action)
         
         self.children.append(child_node)
         return child_node
 
-    def isFinalState(self):
+    def isTerminalNode(self):
         return self.state.isEndGame()
 
     def playout(self):
@@ -294,10 +322,8 @@ class MCTSNode():
         Loss:   -1
         Tie:    0
         """
-        boardState = self.state
+        result = self.state.runToCompletion()
 
-        # Play until game ends
-        result = boardState.runToCompletion()
         return result
 
     def backpropagate(self, result):
@@ -313,36 +339,46 @@ class MCTSNode():
 
     def isFullyExpanded(self):
         # "Cutting actions by half can give us incredible savings"
-        return len(self._untried_actions) == 0
+        return len(self._untriedMoves) == 0
 
     def selectBestChild(self, C=0.1):
         # Exploitation vs Exploration score is computed:  vi + C*sqrt[ln(N) / ni]
         scores = [
-            child.quality() + \
+            child.q() + \
             C * np.sqrt((2 * np.log(self.n_visits) / child.n_visits)) # why 2*?
             for child in self.children
         ]
         return self.children[np.argmax(scores)]
     
-    def treePolicy(self, fully_expand=False):
+    def treePolicy(self):
         """
         Selection: return the node to run simulations from
         """
         current = self
-        if fully_expand: # Visits all children before going deeper
-            while not current.isFinalState():
-                if current.isFullyExpanded(): 
-                    current = current.selectBestChild()      
-                else:
-                    return current.expandOne()          
-        
+
+        depth = 0
+        while not current.isTerminalNode():
+            # keep exploring new moves until we have tried them all
+            if current.isFullyExpanded():   # all children states have been generated
+                current = current.selectBestChild() # best move out of all possible moves
+                depth += 1
+            else:
+                print("Expand one node in level", depth)
+                return current.expandOne()
+    
         return current
     
     def bestMove(self, iterations):
-
-        for _ in range(iterations):
-            node = self.treePolicy()   # Selection and Expansion
+        for p in range(iterations):
+            node = self.treePolicy()    # Selection and Expansion
+            print("Selected node:", "p0",node.state.my_pos, "p1", node.state.adv_pos, "action", node.parentAction)
             result = node.playout()     # Simulation
             node.backpropagate(result)  # Backpropagation
+            print("playout", p, "=", result)
 
-        return self.selectBestChild(C=0.)
+        return self.selectBestChild(C=0).parentAction # pure exploitation
+
+
+# Every node represents a point in the game where it is our turn.
+# How do we represent adversary's moves?
+# We have to use MCTS Nodes for adversary moves also!!!

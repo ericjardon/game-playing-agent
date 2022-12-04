@@ -27,7 +27,8 @@ class RandomAgent(Agent):
             dir = np.random.randint(0, 4)
             m_r, m_c = moves[dir]
             my_pos = (r + m_r, c + m_c)
-
+            # if (0<= my_pos[0] < chess_board.shape[0] and 0<= my_pos[1] < chess_board.shape[0]):
+            #     print("RANDOM ILLEGAL MOVE")
             # Special Case enclosed by Adversary
             k = 0
             while chess_board[r, c, dir] or my_pos == adv_pos:

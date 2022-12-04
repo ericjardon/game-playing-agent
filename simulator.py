@@ -129,10 +129,10 @@ class Simulator:
         std1 = np.round(np.std(p1_times)*1000, 5)
         std2 = np.round(np.std(p2_times)*1000, 5)
         logger.info(
-            f"Player {PLAYER_1_NAME} win percentage: {p1_win_count / self.args.autoplay_runs} ({np.round(np.mean(p1_times)*1000, 5)} miliseconds/turn +/-{std1})"
+            f"Player {PLAYER_1_NAME} {self.world.p0.name} win percentage: {p1_win_count / self.args.autoplay_runs} ({np.round(np.mean(p1_times)*1000, 5)} miliseconds/turn +/-{std1})"
         )
         logger.info(
-            f"Player {PLAYER_2_NAME} win percentage: {p2_win_count / self.args.autoplay_runs}, ({np.round(np.mean(p2_times)*1000, 5)} miliseconds/turn) +/-{std2}"
+            f"Player {PLAYER_2_NAME} {self.world.p1.name} win percentage: {p2_win_count / self.args.autoplay_runs}, ({np.round(np.mean(p2_times)*1000, 5)} miliseconds/turn) +/-{std2}"
         )
 
 

@@ -3,17 +3,20 @@ import numpy as np
 from copy import deepcopy
 from agents.agent import Agent
 from store import register_agent
+# ALLOWED IMPORTS
 from collections import deque, defaultdict
 from time import time
-import random
 
-MAX_TIME_SECONDS = 1.8
+# Our time limit before stopping MCTS iterations
+MAX_TIME_SECONDS = 1.875
 
 @register_agent("try_agent")
 class TryAgent(Agent):
-
-    # ITERATIONS = 290
-    
+    '''
+    Uses Upper Confidence Trees (MCTS + UCB) to approximate a Minimax tree and 
+    return a good move.
+    We continue to expand the tree as far as MAX_TIME_SECONDS allows.
+    '''
     def __init__(self):
         super(TryAgent, self).__init__()
         self.name = "TryAgent"
@@ -30,22 +33,13 @@ class TryAgent(Agent):
         tree = MCTSNode(state)
         pos_r, pos_c, wall = tree.bestMove()
         return (pos_r, pos_c), wall
-    
-    # def firstStep(self, chess_board, my_pos, adv_pos, max_step):
-    #     print("first")
-    #     state = BoardState(
-    #         chess_board,
-    #         my_pos, 
-    #         adv_pos,
-    #         max_step,
-    #         turn=0
-    #     )
-    #     tree = MCTSNode(state)
-    #     pos_r, pos_c, wall = tree.bestMove(iterations=1e3)
-    #     return (pos_r, pos_c), wall
 
 class BoardState():
-    '''Used both as an information container and a simulator for now'''
+    '''
+    Container class for encapsulating the state of the Colosseum Survival game.
+    Implements methods for tracking and updating the game state, computing
+    the list of possible moves for a player and obtaining a random action for a player.
+    '''
     # Moves (Up, Right, Down, Left)
     moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
 
@@ -108,7 +102,8 @@ class BoardState():
                     move = self.moves[dir]
                     nextt = (curr[0] + move[0], curr[1] + move[1])
 
-                    if self.isValidPos(nextt) and nextt not in visited \
+                    # if self.isValidPos(nextt) and nextt not in visited \
+                    if nextt not in visited \
                         and adv_pos != nextt:
                         queue.append(nextt)
                         visited.add(nextt)
@@ -130,7 +125,7 @@ class BoardState():
             r, c = temp_pos
             dir = np.random.randint(0,4)
             m_r, m_c = self.moves[dir]
-            temp_pos = (r + m_r, c + m_c) # TODO boundary conditions?
+            temp_pos = (r + m_r, c + m_c)
 
             # Special Case if enclosed by Adversary
             k = 0
@@ -263,15 +258,16 @@ class BoardState():
 
 # Use nodes for both our turn and the other player's turn. Like MiniMax!
 
-'''
-MONTE CARLO TREE SEARCH
-Nodes are game states.
-1. Selection: traverse the tree down to a leaf, picking the best child based on Estimated Reward 
-2. Expansion: produce a child node by selecting an arbitrary legal move from current node
-3. Simulation: perform a number of playouts from the expanded node. Can be heavy or light playouts (random or pseudorandom moves until completion).
-4. Backpropagation: update wins and visit counts in all nodes in the expanded path in the tree.
-'''
+
 class MCTSNode():
+    '''
+    MONTE CARLO TREE SEARCH with UCT
+    Nodes are game states of Colosseum Survival.
+    1. Selection: traverse the tree down to a leaf, picking the best child based on quality measure + ucb.
+    2. Expansion: produce a child node by selecting an unexplored legal move from current node
+    3. Simulation: perform a number of playouts from the expanded node. (currently only light playouts i.e. random)
+    4. Backpropagation: update wins and visit counts in all nodes in the expanded path in the tree.
+    '''
     def __init__(self, state, parent=None, parentAction=None) -> None:
         self.state = state                  # BoardState
         self.turn = state.turn
@@ -279,7 +275,7 @@ class MCTSNode():
         self.parentAction = parentAction    # (r,c,d)
 
         self.children = deque()     # Deque[MCTSNode]
-        self.n_visits = 0           # times visited or ni
+        self.n_visits = 0           # times visited, or ni
 
         _outcomes = defaultdict(int)
         _outcomes[1] = 0     # wins
@@ -290,13 +286,14 @@ class MCTSNode():
         self._untriedMoves = self.state.getPossibleMoves()
 
     def q(self):
+        # (wins - losses) / ni
         return (self._outcomes[1] - self._outcomes[-1]) / self.n_visits
 
     def expandOne(self):
         """
-            From present state, generate child state by taking
-            ONE possible action. Assumes untriedMoves len > 1
-            Instantiates and returns a new MCTSNode.
+        From present state, generate child state by taking
+        ONE possible action. Assumes len(untriedMoves) > 0.
+        Instantiates and returns a new MCTSNode.
         """
         # Pick a legal unexplored move
         action = self._untriedMoves.pop()       # pop moves with longer steps first
@@ -373,7 +370,7 @@ class MCTSNode():
     
         return stateNode
     
-    def bestMove(self, iterations=280):
+    def bestMove(self):
         st_time = time()
 
         while time() - st_time < MAX_TIME_SECONDS:

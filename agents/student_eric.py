@@ -5,6 +5,7 @@ import sys
 import time
 import numpy as np
 from copy import deepcopy
+from collections import deque
 
 @register_agent("eric_agent")
 class EricAgent(Agent):
@@ -18,63 +19,109 @@ class EricAgent(Agent):
             "d": 2,
             "l": 3,
         }
-        self.firstMove = True
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
-        """
-        First step
-        """
-        # Compute for 30 seconds...
-        time.sleep(30)
-        self.step = self.nextSteps
-        self.firstMove = False
-        return my_pos, self.dir_map["u"]
+        current_state = BoardState(chess_board, my_pos, adv_pos, max_steps=max_step)
 
-    def nextSteps(self, chess_board, my_pos, adv_pos, max_step):
-        print("next Step, first move?", self.firstMove)
-        return my_pos, self.dir_map["u"]
+        root = MCTSNode(current_state)
+        pos, wall = root.bestMove(iterations=100)
 
-class StateSimulator():
-    '''
-    Can we reuse the World class?
-    So we don't have to re-implement
-    '''
-    moves = ((-1, 0), (0, 1), (1, 0), (0, -1))
+        return pos, wall
+
+class BoardState():
+    '''Used both as an information container and a simulator for now'''
+    moves = ((-1, 0), (0, 1), (1, 0), (0, -1))  # u, r, d, l
 
     def __init__(self, board, my_pos, adv_pos, max_step, heavy_playout=False):
         # board is a 3d numpy array
-        self.chess_board = board #deepcopy(board)
+        self.chess_board = deepcopy(board)
         self.board_size = board.shape[0]
         self.my_pos = my_pos
         self.adv_pos = adv_pos
-        self.max_step = max_step
-        self._result = None
-        self.turn = 0               # our turn
-        if self.heavy_playout:
-            self.getAction = self.pseudoRandomAction
-    
-    def getAction(self, turn):
-        return self.randomValidAction(turn)
 
-    def randomValidAction(self, turn):
-        # Return a valid action for current player
-        # TODO: check boundary conditions?
-        if turn:
+        self.max_step = max_step
+        self._result = None            # computed at endgame
+        self.turn = 0                  # p0 turn
+        if self.heavy_playout:      # TODO: review
+            self.getAction = self.pseudoRandomAction
+
+    
+    def validatePos(self, pos):
+        return 0 <= pos[0] < self.board_size and 0 <= pos[1] < self.board_size
+    
+    def getAllPossibleMoves(self):
+        '''
+        BFS
+        Find all placeable walls at all reachable positions 
+        within max_steps from current state.
+        Returns a Deque of triplets (r,c,d) of available legal moves for p0.
+        '''
+
+        actions = deque()
+        start = self.my_pos
+        queue = deque()
+        visited = set()
+        queue.append(start)
+        visited.add(start)
+        
+        level = 0
+
+        while len(queue)>0:
+            if level > self.max_steps:
+                break
+            
+            # Avoid additional computation if no additional step allowed
+            skipNeighbors = level == self.max_steps
+
+            # For all nodes in current level
+            for _ in range(len(queue)):     
+                curr = queue.popleft()
+                for dir in range(4):
+                    if self.chess_board[curr[0], curr[1], dir]: # Wall
+                        continue
+                    
+                    # Valid wall
+                    actions.append((curr[0], curr[1], dir))
+
+                    if skipNeighbors:
+                        continue
+
+                    # Next position
+                    move = self.moves[dir]
+                    nextt = (curr[0] + move[0], curr[1] + move[1])
+
+                    if self.validatePos(nextt) and nextt not in visited \
+                        and self.adv_pos != nextt:
+                        queue.append(nextt)
+                        visited.add(nextt)
+
+            level += 1
+
+        print("actions #",len(actions)) 
+        print(actions)
+        return actions
+
+
+    def getAction(self, turn):
+        '''Return  valid action for specified player turn (0 | 1)'''
+        if turn:    # p1 turn
             temp_pos = deepcopy(self.adv_pos)
-        else:
+            temp_adv_pos = self.my_pos
+        else:       # p0 turn
             temp_pos = deepcopy(self.my_pos)
+            temp_adv_pos = self.adv_pos
         
         n_steps = np.random.randint(0, self.max_step+1)
-        # Do a random walk of n_steps
+        # Random n_steps walk
         for _ in range(n_steps):
             r, c = temp_pos
             dir = np.random.randint(0,4)
             m_r, m_c = self.moves[dir]
-            temp_pos = (r + m_r, c + m_c)
+            temp_pos = (r + m_r, c + m_c) # TODO boundary conditions?
 
             # Special Case if enclosed by Adversary
             k = 0
-            while self.chess_board[r, c, dir] or temp_pos == self.adv_pos:
+            while self.chess_board[r, c, dir] or temp_pos == temp_adv_pos:
                 k += 1
                 if k > 300:
                     break
@@ -83,7 +130,7 @@ class StateSimulator():
                 temp_pos = (r + m_r, c + m_c)
 
             if k > 300:
-                temp_pos = self.my_pos
+                temp_pos = self.adv_pos if turn == 1 else self.my_pos
                 break
         
         # Put Barrier
@@ -92,15 +139,32 @@ class StateSimulator():
         while self.chess_board[r, c, dir]:
             dir = np.random.randint(0, 4)
         
-        return temp_pos, dir
+        return r, c, dir
 
-    def move(self):
-        # Update state
-        self.board
-        pass
+    def move(self, action, turn=0):
+        '''Return a new BoardState from making the specified move'''
+        new_board = deepcopy(self.chess_board)
+        new_board[action[0], action[1], action[2]] = True
+
+        if turn == 0:
+            my_pos = (action[0], action[1])
+            adv_pos = tuple(self.adv_pos)
+        else:
+            adv_pos = (action[0], action[1])
+            my_pos = tuple(self.my_pos)
+
+        return BoardState(new_board, my_pos, adv_pos, self.max_step)
+
+    def updateBoard(self, action, turn):
+        '''Update own state from making the specified move'''
+        self.chess_board[action[0], action[1], action[2]] = True
+        if turn == 0:
+            self.my_pos = (action[0], action[1])
+        else:
+            self.adv_pos = (action[0], action[1])
         
     def pseudoRandomAction(self):
-        pass
+        raise NotImplementedError()
 
     def isEndGame(self):
         # Union-Find, O(n lg*n), better than O(nlogn)
@@ -143,9 +207,9 @@ class StateSimulator():
         p1_r = find(tuple(self.p1_pos))
 
         if p0_r == p1_r:
-            return False, None # no result
+            return False
 
-        # Determine winner
+        # Tally up scores
         p0_score = list(father.values()).count(p0_r)
         p1_score = list(father.values()).count(p1_r)
 
@@ -157,7 +221,128 @@ class StateSimulator():
             res = 0          # tie
         
         self._result = res
-        return True, res
+        return True
         
-    def result(self):
+    def runToCompletion(self, start_turn = 0):
+        turn = start_turn
+        while not self.isEndGame():
+            action = self.getAction(turn)   # random walk
+            self.updateBoard(action, turn)  
+            turn ^= 1
+        
         return self._result
+
+
+'''
+MONTE CARLO TREE SEARCH
+Nodes are game states.
+
+1. Selection: traverse the tree down to a leaf, picking the best child based on Estimated Reward 
+2. Expansion: produce a child node by selecting an arbitrary legal move from current node
+3. Simulation: perform a number of playouts from the expanded node. Can be heavy or light playouts (random or pseudorandom moves until completion).
+4. Backpropagation: update wins and visit counts in all nodes in the expanded path in the tree.
+'''
+
+import numpy as np
+from collections import defaultdict, deque
+
+class MCTSNode():
+    def __init__(self, state, parent=None, parentAction=None) -> None:
+        """ Create a node everytime we expand our existing MCTS """
+        self.state = state # BoardState
+        
+        self.parent = parent                # pointer to parent Node
+        self.parentAction = parentAction    # client code should use .parentAction of best child
+
+        self.children = deque()     # subsequent game states
+        self.n_visits = 0           # times visited or ni
+
+        _outcomes = defaultdict(int)
+        _outcomes[1] = 0     # wins
+        _outcomes[-1] = 0    # losses
+        self._outcomes = _outcomes
+        
+        # Compute all possible moves
+        self._untriedMoves = self.state.getAllPossibleMoves()
+
+    def quality(self):
+        return (self._outcomes[1] - self._outcomes[-1]) / self.n_visits
+
+    def expandOne(self):
+        """
+            From present state, generate child state by taking
+            ONE possible action.
+            Instantiates a new MCTSNode and returns it.
+        """
+        # Pick a legal unexplored move
+        action = self._untriedMoves.pop()       # pop moves with longer steps first
+        # Compute next state
+        next_state = self.state.move(action)    # BoardState
+        child_node = MCTSNode(
+            next_state, parent=self, parentAction=action)
+        
+        self.children.append(child_node)
+        return child_node
+
+    def isFinalState(self):
+        return self.state.isEndGame()
+
+    def playout(self):
+        """
+        Simulate an game from here until endgame.
+        Win:    1
+        Loss:   -1
+        Tie:    0
+        """
+        boardState = self.state
+
+        # Play until game ends
+        result = boardState.runToCompletion()
+        return result
+
+    def backpropagate(self, result):
+        """
+        Recursively update statistics for all nodes from this node
+        to the root
+        """
+        # Result is either 1, -1 or 0
+        self.n_visits += 1
+        self._outcomes[result] += 1
+        if self.parent:
+            self.parent.backpropagate(result)
+
+    def isFullyExpanded(self):
+        # "Cutting actions by half can give us incredible savings"
+        return len(self._untried_actions) == 0
+
+    def selectBestChild(self, C=0.1):
+        # Exploitation vs Exploration score is computed:  vi + C*sqrt[ln(N) / ni]
+        scores = [
+            child.quality() + \
+            C * np.sqrt((2 * np.log(self.n_visits) / child.n_visits)) # why 2*?
+            for child in self.children
+        ]
+        return self.children[np.argmax(scores)]
+    
+    def treePolicy(self, fully_expand=False):
+        """
+        Selection: return the node to run simulations from
+        """
+        current = self
+        if fully_expand: # Visits all children before going deeper
+            while not current.isFinalState():
+                if current.isFullyExpanded(): 
+                    current = current.selectBestChild()      
+                else:
+                    return current.expandOne()          
+        
+        return current
+    
+    def bestMove(self, iterations):
+
+        for _ in range(iterations):
+            node = self.treePolicy()   # Selection and Expansion
+            result = node.playout()     # Simulation
+            node.backpropagate(result)  # Backpropagation
+
+        return self.selectBestChild(C=0.)

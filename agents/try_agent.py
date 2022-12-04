@@ -4,7 +4,7 @@ from copy import deepcopy
 from agents.agent import Agent
 from store import register_agent
 from collections import deque, defaultdict
-
+import time
 
 @register_agent("try_agent")
 class TryAgent(Agent):
@@ -15,10 +15,18 @@ class TryAgent(Agent):
         self.autoplay = True
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
-        # tree = MCTSNode(current_state)
-        # pos_r, pos_c, wall = tree.bestMove(iterations=100)
-        # return (pos_r, pos_c), wall
-        pass
+        tic = time.perf_counter()
+        state = BoardState(
+            chess_board,
+            my_pos, 
+            adv_pos,
+            max_step,
+            turn=0
+        )
+        tree = MCTSNode(state)
+        pos_r, pos_c, wall = tree.bestMove(iterations=100)
+        # print("Try agent moved in {:.2f}".format(time.perf_counter() - tic))
+        return (pos_r, pos_c), wall
 
 class BoardState():
     '''Used both as an information container and a simulator for now'''
@@ -41,15 +49,18 @@ class BoardState():
     def isValidPos(self, pos):
         return 0 <= pos[0] < self.board_size and 0 <= pos[1] < self.board_size
     
-    def getListOfMoves(self):
+    def getPossibleMoves(self):
         '''
         BFS
         Finds all placeable walls at all reachable positions 
         within max_steps from current state.
         Returns a Deque of triplets (r,c,d) of available legal moves for p0.
         '''
+        our_pos, adv_pos = self.p0_pos, self.p1_pos
+        if self.turn:
+            our_pos, adv_pos = adv_pos, our_pos
         actions = deque()
-        start = self.p0_pos
+        start = our_pos
         queue = deque()
         visited = set()
         queue.append(start)
@@ -81,7 +92,7 @@ class BoardState():
                     nextt = (curr[0] + move[0], curr[1] + move[1])
 
                     if self.isValidPos(nextt) and nextt not in visited \
-                        and self.p1_pos != nextt:
+                        and adv_pos != nextt:
                         queue.append(nextt)
                         visited.add(nextt)
             level += 1
@@ -121,6 +132,9 @@ class BoardState():
         # Put Barrier
         dir = np.random.randint(0, 4)
         r, c = temp_pos
+        cell = self.chess_board[r, c, :]
+        if np.all(cell):
+            print("loop at", r, c, f"p{self.turn} ({temp_pos})", f"p{1 - self.turn} ({adv_pos})")
         while self.chess_board[r, c, dir]:
             dir = np.random.randint(0, 4)
         
@@ -137,9 +151,6 @@ class BoardState():
         '''Update own state (board, positions, turn) from making the specified move'''
         self.place_wall(action[0], action[1], action[2])
         
-        if np.all(self.chess_board[action[0], action[1], :]):
-            print("SATURATED AT", action[0], action[1], "turn:", self.turn)
-            self.printState()
         if self.turn == 0:
             self.p0_pos = (action[0], action[1])
         else:
@@ -155,6 +166,7 @@ class BoardState():
         '''
         copy = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, self.turn)
         copy.updateBoard(action)
+
         return copy
         
     def pseudoRandomAction(self):
@@ -258,7 +270,7 @@ class MCTSNode():
         self._outcomes = _outcomes
         
         # Compute all possible moves
-        self._untriedMoves = self.state.getListOfMoves()
+        self._untriedMoves = self.state.getPossibleMoves()
 
     def q(self):
         return (self._outcomes[1] - self._outcomes[-1]) / self.n_visits
@@ -347,9 +359,8 @@ class MCTSNode():
     def bestMove(self, iterations):
         for p in range(iterations):
             node = self.treePolicy()    # Selection and Expansion
-            print(f"tree policy: p{node.turn} moves {node.parentAction}")
             result = node.playout()     # Simulation
             node.backpropagate(result)  # Backpropagation
-            print("\tsimulation", p, "=", result)
+            # print("\tsimulation", p, "=", result)
 
         return self.selectBestChild(C=0).parentAction # pure exploitation

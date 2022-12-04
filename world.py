@@ -206,9 +206,10 @@ class World:
 
         try:
             # Run the agents step function
+            board = deepcopy(self.chess_board)
             start_time = time()
             next_pos, dir = cur_player.step(
-                deepcopy(self.chess_board),
+                board,
                 tuple(cur_pos),
                 tuple(adv_pos),
                 self.max_step,

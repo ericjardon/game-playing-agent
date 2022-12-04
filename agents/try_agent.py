@@ -7,7 +7,7 @@ from collections import deque, defaultdict
 from time import time
 import random
 
-MAX_TIME_SECONDS = 1.99
+MAX_TIME_SECONDS = 1.8
 
 @register_agent("try_agent")
 class TryAgent(Agent):

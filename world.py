@@ -182,6 +182,8 @@ class World:
         time_taken : float
             Time taken by the player
         """
+        if time_taken > 2.0:
+            print(f"Time out (player {self.turn}): {time_taken}s")
         if not self.turn:
             self.p0_time += time_taken
         else:

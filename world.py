@@ -182,8 +182,8 @@ class World:
         time_taken : float
             Time taken by the player (per turn)
         """
-        if time_taken  > 2:
-            print("timed out:", time_taken,"seconds", "B" if self.turn else "A", "board size", self.board_size)
+        if time_taken > 2.0:
+            print(f"Time out (player {self.turn}): {time_taken}s")
         if not self.turn:
             # self.p0_time += time_taken
             self.p0_time.append(time_taken) 

@@ -1,24 +1,25 @@
+
+import numpy as np
+from copy import deepcopy
 from agents.agent import Agent
 from store import register_agent
 # ALLOWED IMPORTS
-import numpy as np
-from copy import deepcopy
 from collections import deque, defaultdict
 from time import time
 
 # Our time limit before stopping MCTS iterations
 MAX_TIME_SECONDS = 1.875
 
-@register_agent("student_agent")
-class StudentAgent(Agent):
+@register_agent("try_agent")
+class TryAgent(Agent):
     '''
     Uses Upper Confidence Trees (MCTS + UCB) to approximate a Minimax tree and 
     return a good move.
     We continue to expand the tree as far as MAX_TIME_SECONDS allows.
     '''
     def __init__(self):
-        super(StudentAgent, self).__init__()
-        self.name = "StudentAgent"
+        super(TryAgent, self).__init__()
+        self.name = "TryAgent"
         self.autoplay = True
 
     def step(self, chess_board, my_pos, adv_pos, max_step):
@@ -80,7 +81,7 @@ class BoardState():
         while len(queue)>0:
             if level > self.max_step:
                 break
-            # Avoid computation of neighbors if no additional step allowed
+            # Avoid additional computation if no additional step allowed
             skipNeighbors = level == self.max_step
 
             # For all nodes in current level
@@ -101,6 +102,7 @@ class BoardState():
                     move = self.moves[dir]
                     nextt = (curr[0] + move[0], curr[1] + move[1])
 
+                    # if self.isValidPos(nextt) and nextt not in visited \
                     if nextt not in visited \
                         and adv_pos != nextt:
                         queue.append(nextt)
@@ -109,10 +111,7 @@ class BoardState():
         return actions  # deque of (r,c,d)
 
     def randomAction(self):
-        '''
-        Produce Random Walk for specified player (0 | 1)
-        [based on the procedure from random_agent.py]
-        '''
+        '''Produce Random Walk for specified player (0 | 1)'''
         if self.turn:    # p1 turn
             temp_pos = deepcopy(self.p1_pos)
             adv_pos = self.p0_pos
@@ -145,20 +144,20 @@ class BoardState():
         # Put Barrier
         dir = np.random.randint(0, 4)
         r, c = temp_pos
-        # cell = self.chess_board[r, c, :]
-        # if np.all(cell):
-        #     print("loop at", r, c, f"p{self.turn} ({temp_pos})", f"p{1 - self.turn} ({adv_pos})")
+        cell = self.chess_board[r, c, :]
+        if np.all(cell):
+            print("loop at", r, c, f"p{self.turn} ({temp_pos})", f"p{1 - self.turn} ({adv_pos})")
         while self.chess_board[r, c, dir]:
             dir = np.random.randint(0, 4)
         
         return r, c, dir
 
-    def place_wall(self, r, c, dir):        
-        # Set the wall to True
-        self.chess_board[r, c, dir] = True
-        # Set the opposite wall to True
-        move = self.moves[dir]
-        self.chess_board[r + move[0], c + move[1], self.opposites[dir]] = True
+    def place_wall(self, r, c, dir):
+            # Set the wall to True
+            self.chess_board[r, c, dir] = True
+            # Set the opposite wall to True
+            move = self.moves[dir]
+            self.chess_board[r + move[0], c + move[1], self.opposites[dir]] = True
 
     def updateBoard(self, action):
         '''Update own state (board, positions, turn) from making the specified move'''
@@ -174,7 +173,8 @@ class BoardState():
 
     def nextBoardState(self, action):
         '''
-        Return a new BoardState derived from making the specified move
+        Return a new BoardState from making the specified move
+        WARNING: updates internal state of Board
         '''
         copy = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, self.turn)
         copy.updateBoard(action)
@@ -185,9 +185,7 @@ class BoardState():
         raise NotImplementedError()
 
     def isGameOver(self):
-        '''Perform union-find to determine whether game has ended'''
         # Union-Find, O(n lg*n), better than O(nlogn)
-        # [based on check_endgame procedure in world.py]
         father = dict()
         for r in range(self.board_size):
             for c in range(self.board_size): # Every cell is its own parent in the beginning
@@ -240,6 +238,25 @@ class BoardState():
         
         self._result = res
         return True
+        
+    def runToCompletion(self, start_turn = 1):
+        """Create a copy of the Board and update until endgame"""
+        simul = BoardState(self.chess_board, self.p0_pos, self.p1_pos, self.max_step, turn=start_turn)
+        while not simul.isGameOver():
+            action = simul.randomAction()   # random walk
+            simul.updateBoard(action)
+
+        return simul._result
+
+    def printState(self):
+        print("p0", self.p0_pos)
+        print("p1", self.p1_pos)
+        print("to move:", self.turn)
+        print("board")
+        print(self.chess_board)
+        print(",")
+
+# Use nodes for both our turn and the other player's turn. Like MiniMax!
 
 
 class MCTSNode():
